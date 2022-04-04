@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
+	"net/http"
 	"strings"
 
 	pxapi "github.com/Telmate/proxmox-api-go/proxmox"
@@ -45,6 +47,16 @@ func New(version string) func() *schema.Provider {
 					Required:    true,
 					DefaultFunc: schema.EnvDefaultFunc("PVE_PASSWORD", nil),
 				},
+				"otp": {
+					Type:      schema.TypeString,
+					Sensitive: true,
+					Optional:  true,
+				},
+				"insecure": {
+					Description: "By default, every TLS connection should be verified to be secure, this option allows to proceed and operate even for connections considered insecure",
+					Type:        schema.TypeBool,
+					Optional:    true,
+				},
 			},
 			ResourcesMap: map[string]*schema.Resource{
 				"pve_vm": resourceVM(),
@@ -59,6 +71,7 @@ func New(version string) func() *schema.Provider {
 
 type apiClient struct {
 	*pxapi.Client
+	session *pxapi.Session
 }
 
 func configure(version string, p *schema.Provider) func(context.Context, *schema.ResourceData) (interface{}, diag.Diagnostics) {
@@ -66,21 +79,36 @@ func configure(version string, p *schema.Provider) func(context.Context, *schema
 		endpoint := d.Get("endpoint").(string)
 		username := d.Get("username").(string)
 		password := d.Get("password").(string)
+		otp := ""
+		if v, ok := d.GetOk("otp"); ok {
+			otp = v.(string)
+		}
 
-		client, err := pxapi.NewClient(
-			strings.TrimRight(endpoint, "/")+"/api2/json",
-			nil,
-			nil,
-			"",
-			300,
-		)
+		apiUrl := strings.TrimRight(endpoint, "/") + "/api2/json"
+
+		httpClient := &http.Client{}
+
+		var tlsConfig *tls.Config
+		if insecure, ok := d.GetOk("insecure"); ok && insecure == true {
+			tlsConfig = &tls.Config{InsecureSkipVerify: true}
+		}
+
+		client, err := pxapi.NewClient(apiUrl, httpClient, tlsConfig, "", 300)
 		if err != nil {
 			return nil, diag.FromErr(err)
 		}
-		if err := client.Login(username, password, ""); err != nil {
+		if err := client.Login(username, password, otp); err != nil {
 			return nil, diag.FromErr(err)
 		}
 
-		return &apiClient{client}, nil
+		session, err := pxapi.NewSession(apiUrl, httpClient, "", tlsConfig)
+		if err != nil {
+			return nil, diag.FromErr(err)
+		}
+		if err := session.Login(username, password, otp); err != nil {
+			return nil, diag.FromErr(err)
+		}
+
+		return &apiClient{client, session}, nil
 	}
 }

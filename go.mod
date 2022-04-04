@@ -7,7 +7,6 @@ require (
 	github.com/hashicorp/terraform-plugin-docs v0.7.0
 	github.com/hashicorp/terraform-plugin-log v0.3.0
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.13.0
-	github.com/hashicorp/terraform-provider-scaffolding v0.0.0-20220401154628-b166f67a6ac4
 	golang.org/x/net v0.0.0-20210326060303-6b1517762897
 )
 
