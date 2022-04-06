@@ -53,7 +53,6 @@ func resourceVM() *schema.Resource {
 				Description: "VM template.",
 				Type:        schema.TypeString,
 				Required:    true,
-				ForceNew:    true,
 				ValidateFunc: validation.All(
 					validation.StringIsNotEmpty,
 					validation.StringMatch(regexp.MustCompile(`(?m)^[a-zA-Z0-9-.]+$`), "not a valid DNS name"),
@@ -250,6 +249,8 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 		return diag.Errorf("faild to convert resource id to vmid: %s", err)
 	}
 
+	restartNeeded := false
+
 	vmref := pxapi.NewVmRef(vmid)
 
 	updates := map[string]interface{}{}
@@ -257,11 +258,12 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 	if d.HasChange("cores") {
 		cores := d.Get("cores")
 		updates["cores"] = cores
-
+		restartNeeded = true
 	}
 	if d.HasChange("memory") {
 		memory := d.Get("memory")
 		updates["memory"] = memory
+		restartNeeded = true
 	}
 
 	if len(updates) > 0 {
@@ -271,11 +273,51 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 		if _, err := client.SetVmConfig(vmref, updates); err != nil {
 			return diag.Errorf("failed to update cpu or memory: %s", err)
 		}
+	}
+
+	if d.HasChange("template_name") {
+		tplrefs, err := client.GetVmRefsByName(d.Get("template_name").(string))
+		if err != nil {
+			return diag.FromErr(err)
+		}
+
+		if len(tplrefs) == 0 {
+			return diag.Errorf("template not found")
+		} else if len(tplrefs) > 1 {
+			return diag.Errorf("found multiple template with same template_name")
+		}
+
+		tplref := tplrefs[0]
+		if tplref.GetVmType() != "qemu" {
+			return diag.Errorf("template is not for qemu vm")
+		}
+
 		if _, err := client.ShutdownVm(vmref); err != nil {
 			return diag.Errorf("failed to shutdown vm: %s", err)
 		}
 		if err := waitVMStopped(ctx, client, vmref, waitStoppedTimeout); err != nil {
 			return diag.Errorf("wait vm stopped: %s", err)
+		}
+
+		if err := replaceTemplate(ctx, client, d.Get("name").(string), vmref, tplref); err != nil {
+			return diag.Errorf("failed to replace template: %s", err)
+		}
+
+		restartNeeded = true
+	}
+
+	if restartNeeded {
+		state, err := client.GetVmState(vmref)
+		if err != nil {
+			return diag.Errorf("failed to check vm state: %s", err)
+		}
+		if state["status"] != "stopped" {
+			if _, err := client.ShutdownVm(vmref); err != nil {
+				return diag.Errorf("failed to shutdown vm: %s", err)
+			}
+			if err := waitVMStopped(ctx, client, vmref, waitStoppedTimeout); err != nil {
+				return diag.Errorf("wait vm stopped: %s", err)
+			}
 		}
 		if _, err := client.StartVm(vmref); err != nil {
 			return diag.Errorf("failed to start vm: %s", err)
@@ -537,6 +579,59 @@ loop:
 
 	if exitStatus != 0 {
 		return fmt.Errorf("command failed with exit status %d", exitStatus)
+	}
+
+	return nil
+}
+
+func replaceTemplate(ctx context.Context, client *apiClient, vmName string, vmref, tplref *pxapi.VmRef) error {
+	newid, err := client.GetNextID(0)
+	if err != nil {
+		return fmt.Errorf("failed to generate vmid: %s", err)
+	}
+
+	cloneParams := map[string]interface{}{
+		"newid":  newid,
+		"full":   true,
+		"name":   vmName + "-upgrade",
+		"target": tplref.Node(),
+	}
+
+	_, err = client.CloneQemuVm(tplref, cloneParams)
+	if err != nil {
+		return fmt.Errorf("failed to clone vm %d: %s", tplref.VmId(), err)
+	}
+	newvmref := pxapi.NewVmRef(newid)
+	defer func() {
+		_, err = client.DeleteVm(newvmref)
+		if err != nil {
+			tflog.Warn(ctx, "failed to delete aux vm", map[string]interface{}{"vmid": newid})
+		}
+	}()
+
+	tflog.Debug(ctx, "aux vm cloned", map[string]interface{}{"vmid": newid})
+
+	if err := client.CheckVmRef(newvmref); err != nil {
+		return fmt.Errorf("failed to refresh newly cloned vm: %s", err)
+	}
+
+	_, err = client.SetVmConfig(vmref, map[string]interface{}{"delete": "scsi0"})
+	if err != nil {
+		return fmt.Errorf("failed to detach disk: %s", err)
+	}
+
+	_, err = client.moveQemuDisk(newvmref, map[string]interface{}{
+		"disk":        "scsi0",
+		"delete":      true,
+		"target-vmid": vmref.VmId(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to replace disk: %s", err)
+	}
+
+	_, err = client.SetVmConfig(vmref, map[string]interface{}{"delete": "unused0"})
+	if err != nil {
+		return fmt.Errorf("failed to remove unused disk: %s", err)
 	}
 
 	return nil

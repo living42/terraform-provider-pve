@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -72,6 +73,20 @@ func New(version string) func() *schema.Provider {
 type apiClient struct {
 	*pxapi.Client
 	session *pxapi.Session
+}
+
+func (c *apiClient) moveQemuDisk(vmr *pxapi.VmRef, opts map[string]interface{}) (exitStatus interface{}, err error) {
+	reqbody := pxapi.ParamsToBody(opts)
+	url := fmt.Sprintf("/nodes/%s/%s/%d/move_disk", vmr.Node(), vmr.GetVmType(), vmr.VmId())
+	resp, err := c.session.Post(url, nil, nil, &reqbody)
+	if err == nil {
+		taskResponse, err := pxapi.ResponseJSON(resp)
+		if err != nil {
+			return nil, err
+		}
+		exitStatus, err = c.WaitForCompletion(taskResponse)
+	}
+	return
 }
 
 func configure(version string, p *schema.Provider) func(context.Context, *schema.ResourceData) (interface{}, diag.Diagnostics) {
