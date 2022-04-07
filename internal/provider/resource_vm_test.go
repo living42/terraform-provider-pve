@@ -206,6 +206,72 @@ func TestAccResourceVMSwitchTemplate(t *testing.T) {
 	})
 }
 
+func TestAccResourceVMWithDisks(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: providerFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				locals {
+					password = "secret0001"
+				}
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-disks"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					user_data = <<-EOF
+					#cloud-config
+					password: ${local.password}
+					chpasswd:
+					  expire: false
+					fs_setup:
+					  - device: /dev/sdb
+					    label: data1
+					    filesystem: ext4
+					    partition: auto
+					  - device: /dev/sdc
+					    label: data2
+					    filesystem: ext4
+					    partition: auto
+					mounts:
+					  - [/dev/sdb, /data1]
+					  - [/dev/sdc, /data2]
+					EOF
+
+					disk {
+						storage = "local"
+						size = 8
+					}
+
+					disk {
+						storage = "local"
+						size = 8
+					}
+
+					provisioner "remote-exec" {
+						inline = [
+							"cloud-init status --wait",
+							"[ $(lsblk /dev/sdb -o SIZE -n -r) = 8G ]",
+							"[ $(lsblk /dev/sdc -o SIZE -n -r) = 8G ]",
+						]
+						connection {
+							type     = "ssh"
+							user     = "debian"
+							password = local.password
+							host     = self.ipv4_address
+						}
+					}
+				}
+				`,
+			},
+		},
+	})
+}
+
 func TestExecuteCommandOnNode(t *testing.T) {
 	endpoint := os.Getenv("PVE_ENDPOINT")
 	username := os.Getenv("PVE_USERNAME")

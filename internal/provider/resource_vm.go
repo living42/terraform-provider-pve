@@ -101,6 +101,24 @@ func resourceVM() *schema.Resource {
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
+			"disk": {
+				Description: "Attach extra disk into VM",
+				Type:        schema.TypeList,
+				Optional:    true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"storage": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+						"size": {
+							Type:        schema.TypeInt,
+							Required:    true,
+							Description: "Size in GB",
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -153,6 +171,15 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta interfac
 	}
 	if memory, ok := d.GetOk("memory"); ok {
 		updates["memory"] = memory
+	}
+
+	if disks, ok := d.GetOk("disk"); ok {
+		for i, disk := range disks.([]interface{}) {
+			device := fmt.Sprintf("scsi%d", i+1)
+			storage := disk.(map[string]interface{})["storage"].(string)
+			size := disk.(map[string]interface{})["size"].(int)
+			updates[device] = fmt.Sprintf("%s:%d,format=qcow2", storage, size)
+		}
 	}
 	if userData, ok := d.GetOk("user_data"); ok {
 		if err := client.CheckVmRef(vmref); err != nil {
