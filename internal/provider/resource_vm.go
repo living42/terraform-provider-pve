@@ -215,15 +215,16 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta interfac
 		}
 	}
 
+	vmConfig, err := client.GetVmConfig(vmref)
+	if err != nil {
+		return diag.Errorf("failed to get vm config: %s", err)
+	}
+	vmConfigToState(vmConfig, d)
+
 	tflog.Debug(ctx, "start vm", map[string]interface{}{"vmid": vmref.VmId()})
 	_, err = client.StartVm(vmref)
 	if err != nil {
 		return diag.Errorf("failed to start vm %d: %s", vmref.VmId(), err)
-	}
-
-	vmConfig, err := client.GetVmConfig(vmref)
-	if err != nil {
-		return diag.Errorf("failed to get vm config: %s", err)
 	}
 
 	if agent, ok := vmConfig["agent"]; ok {
@@ -236,7 +237,7 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta interfac
 		}
 	}
 
-	return resourceVMRead(ctx, d, meta)
+	return nil
 }
 
 func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
@@ -258,15 +259,7 @@ func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{
 	if err != nil {
 		return diag.Errorf("failed to get vm config: %s", err)
 	}
-
-	d.Set("cores", int(vmConfig["cores"].(float64)))
-	d.Set("memory", int(vmConfig["memory"].(float64)))
-	d.Set("name", vmConfig["name"].(string))
-	if onboot, ok := vmConfig["onboot"]; ok {
-		d.Set("onboot", onboot == float64(1))
-	} else {
-		d.Set("onboot", false)
-	}
+	vmConfigToState(vmConfig, d)
 
 	if agent, ok := vmConfig["agent"]; ok {
 		if agentStr, ok := agent.(string); !ok {
@@ -279,6 +272,17 @@ func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{
 	}
 
 	return nil
+}
+
+func vmConfigToState(vmConfig map[string]interface{}, d *schema.ResourceData) {
+	d.Set("cores", int(vmConfig["cores"].(float64)))
+	d.Set("memory", int(vmConfig["memory"].(float64)))
+	d.Set("name", vmConfig["name"].(string))
+	if onboot, ok := vmConfig["onboot"]; ok {
+		d.Set("onboot", onboot == float64(1))
+	} else {
+		d.Set("onboot", false)
+	}
 }
 
 func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
@@ -319,7 +323,7 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 			return diag.Errorf("failed to check vm: %s", err)
 		}
 		if _, err := client.SetVmConfig(vmref, updates); err != nil {
-			return diag.Errorf("failed to update cpu or memory: %s", err)
+			return diag.Errorf("failed to update config: %s", err)
 		}
 	}
 
@@ -386,7 +390,7 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 		}
 	}
 
-	return resourceVMRead(ctx, d, meta)
+	return nil
 }
 
 func resourceVMDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
