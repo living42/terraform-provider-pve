@@ -37,7 +37,9 @@ resource "pve_vm" "vm1" {
 
 ### Optional
 
+- `disk` (Block List) Attach extra disk into VM (see [below for nested schema](#nestedblock--disk))
 - `id` (String) The ID of this resource.
+- `onboot` (Boolean) Specifies whether a VM will be started during system bootup.
 - `user_data` (String) cloud-init user data.
 
 					Use this to provision vm, including ssh public key or password setup
@@ -47,5 +49,13 @@ resource "pve_vm" "vm1" {
 ### Read-Only
 
 - `ipv4_address` (String) IPv4 Address of this vm.
+
+<a id="nestedblock--disk"></a>
+### Nested Schema for `disk`
+
+Required:
+
+- `size` (Number) Size in GB
+- `storage` (String)
 
 
