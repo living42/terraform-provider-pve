@@ -43,7 +43,6 @@ func resourceVM() *schema.Resource {
 				Description: "VM name.",
 				Type:        schema.TypeString,
 				Required:    true,
-				ForceNew:    true,
 				ValidateFunc: validation.All(
 					validation.StringIsNotEmpty,
 					validation.StringMatch(regexp.MustCompile(`(?m)^[a-zA-Z0-9-.]+$`), "not a valid DNS name"),
@@ -254,6 +253,7 @@ func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{
 
 	d.Set("cores", int(vmConfig["cores"].(float64)))
 	d.Set("memory", int(vmConfig["memory"].(float64)))
+	d.Set("name", vmConfig["name"].(string))
 
 	if agent, ok := vmConfig["agent"]; ok {
 		if agentStr, ok := agent.(string); !ok {
@@ -281,6 +281,10 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 	vmref := pxapi.NewVmRef(vmid)
 
 	updates := map[string]interface{}{}
+
+	if d.HasChange("name") {
+		updates["name"] = d.Get("name")
+	}
 
 	if d.HasChange("cores") {
 		cores := d.Get("cores")

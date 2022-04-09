@@ -272,6 +272,45 @@ func TestAccResourceVMWithDisks(t *testing.T) {
 	})
 }
 
+func TestAccResourceVMName(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: providerFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-name-1"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pve_vm.vm1", "name", "test-vm1-name-1"),
+				),
+			},
+			{
+				Config: `
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-name-2"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pve_vm.vm1", "name", "test-vm1-name-2"),
+				),
+			},
+		},
+	})
+}
+
 func TestExecuteCommandOnNode(t *testing.T) {
 	endpoint := os.Getenv("PVE_ENDPOINT")
 	username := os.Getenv("PVE_USERNAME")
