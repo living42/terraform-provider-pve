@@ -64,6 +64,11 @@ func resourceVM() *schema.Resource {
 				ForceNew:     true,
 				ValidateFunc: validation.StringIsNotEmpty,
 			},
+			"onboot": {
+				Description: "Specifies whether a VM will be started during system bootup.",
+				Type:        schema.TypeBool,
+				Optional:    true,
+			},
 			"target_storage": {
 				Description:  "Storage where this vm sit.",
 				Type:         schema.TypeString,
@@ -171,6 +176,9 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta interfac
 	if memory, ok := d.GetOk("memory"); ok {
 		updates["memory"] = memory
 	}
+	if onboot, ok := d.GetOk("onboot"); ok {
+		updates["onboot"] = onboot
+	}
 
 	if disks, ok := d.GetOk("disk"); ok {
 		for i, disk := range disks.([]interface{}) {
@@ -254,6 +262,11 @@ func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{
 	d.Set("cores", int(vmConfig["cores"].(float64)))
 	d.Set("memory", int(vmConfig["memory"].(float64)))
 	d.Set("name", vmConfig["name"].(string))
+	if onboot, ok := vmConfig["onboot"]; ok {
+		d.Set("onboot", onboot == float64(1))
+	} else {
+		d.Set("onboot", false)
+	}
 
 	if agent, ok := vmConfig["agent"]; ok {
 		if agentStr, ok := agent.(string); !ok {
@@ -295,6 +308,10 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 		memory := d.Get("memory")
 		updates["memory"] = memory
 		restartNeeded = true
+	}
+	if d.HasChange("onboot") {
+		onboot := d.Get("onboot")
+		updates["onboot"] = onboot
 	}
 
 	if len(updates) > 0 {
