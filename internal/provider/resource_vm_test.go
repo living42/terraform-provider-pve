@@ -382,6 +382,78 @@ func TestAccResourceVMOnBoot(t *testing.T) {
 	})
 }
 
+func TestAccResourceVMStatus(t *testing.T) {
+	resource.UnitTest(t, resource.TestCase{
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: providerFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-status"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pve_vm.vm1", "status", "running"),
+				),
+			},
+			{
+				Config: `
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-status"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					status = "running"
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pve_vm.vm1", "status", "running"),
+				),
+			},
+			{
+				Config: `
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-status"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					status = "stopped"
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pve_vm.vm1", "status", "stopped"),
+				),
+			},
+			{
+				Config: `
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-status"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					status = "running"
+				}
+				`,
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("pve_vm.vm1", "status", "running"),
+				),
+			},
+		},
+	})
+}
+
 func TestExecuteCommandOnNode(t *testing.T) {
 	endpoint := os.Getenv("PVE_ENDPOINT")
 	username := os.Getenv("PVE_USERNAME")

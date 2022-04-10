@@ -69,6 +69,13 @@ func resourceVM() *schema.Resource {
 				Type:        schema.TypeBool,
 				Optional:    true,
 			},
+			"status": {
+				Description:  "Desired VM status",
+				Type:         schema.TypeString,
+				Optional:     true,
+				Default:      "running",
+				ValidateFunc: validation.StringInSlice([]string{"running", "stopped"}, false),
+			},
 			"target_storage": {
 				Description:  "Storage where this vm sit.",
 				Type:         schema.TypeString,
@@ -215,18 +222,20 @@ func resourceVMCreate(ctx context.Context, d *schema.ResourceData, meta interfac
 	}
 	vmConfigToState(vmConfig, d)
 
-	tflog.Debug(ctx, "start vm", map[string]interface{}{"vmid": vmref.VmId()})
-	_, err = client.StartVm(vmref)
-	if err != nil {
-		return diag.Errorf("failed to start vm %d: %s", vmref.VmId(), err)
-	}
+	if d.Get("status") == "running" {
+		tflog.Debug(ctx, "start vm", map[string]interface{}{"vmid": vmref.VmId()})
+		_, err = client.StartVm(vmref)
+		if err != nil {
+			return diag.Errorf("failed to start vm %d: %s", vmref.VmId(), err)
+		}
 
-	if agent, ok := vmConfig["agent"]; ok {
-		if agentStr, ok := agent.(string); !ok {
-			tflog.Warn(ctx, "agent parameter returned by pve is not a string, skip fetch ip address")
-		} else if strings.Contains(agentStr, "enabled=1") {
-			if diags := waitVMBootUpGetIP(ctx, client, vmref, d, waitBootUpTimeout); diags != nil {
-				return diags
+		if agent, ok := vmConfig["agent"]; ok {
+			if agentStr, ok := agent.(string); !ok {
+				tflog.Warn(ctx, "agent parameter returned by pve is not a string, skip fetch ip address")
+			} else if strings.Contains(agentStr, "enabled=1") {
+				if diags := waitVMBootUpGetIP(ctx, client, vmref, d, waitBootUpTimeout); diags != nil {
+					return diags
+				}
 			}
 		}
 	}
@@ -255,12 +264,20 @@ func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{
 	}
 	vmConfigToState(vmConfig, d)
 
-	if agent, ok := vmConfig["agent"]; ok {
-		if agentStr, ok := agent.(string); !ok {
-			tflog.Warn(ctx, "agent parameter returned by pve is not a string, skip fetch ip address")
-		} else if strings.Contains(agentStr, "enabled=1") {
-			if diags := waitVMBootUpGetIP(ctx, client, vmref, d, 1*time.Second); diags != nil {
-				return diags
+	vmState, err := client.GetVmState(vmref)
+	if err != nil {
+		return diag.Errorf("failed to get vm status: %s", err)
+	}
+	d.Set("status", vmState["status"])
+
+	if vmState["status"] == "running" {
+		if agent, ok := vmConfig["agent"]; ok {
+			if agentStr, ok := agent.(string); !ok {
+				tflog.Warn(ctx, "agent parameter returned by pve is not a string, skip fetch ip address")
+			} else if strings.Contains(agentStr, "enabled=1") {
+				if diags := waitVMBootUpGetIP(ctx, client, vmref, d, 1*time.Second); diags != nil {
+					return diags
+				}
 			}
 		}
 	}
@@ -287,7 +304,7 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 		return diag.Errorf("faild to convert resource id to vmid: %s", err)
 	}
 
-	restartNeeded := false
+	shutdownNeeded := false
 
 	vmref := pxapi.NewVmRef(vmid)
 
@@ -300,12 +317,12 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 	if d.HasChange("cores") {
 		cores := d.Get("cores")
 		updates["cores"] = cores
-		restartNeeded = true
+		shutdownNeeded = true
 	}
 	if d.HasChange("memory") {
 		memory := d.Get("memory")
 		updates["memory"] = memory
-		restartNeeded = true
+		shutdownNeeded = true
 	}
 	if d.HasChange("onboot") {
 		onboot := d.Get("onboot")
@@ -349,39 +366,65 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 			return diag.Errorf("failed to replace template: %s", err)
 		}
 
-		restartNeeded = true
+		shutdownNeeded = false
 	}
 
-	if restartNeeded {
-		state, err := client.GetVmState(vmref)
-		if err != nil {
-			return diag.Errorf("failed to check vm state: %s", err)
+	if shutdownNeeded {
+		if _, err := client.ShutdownVm(vmref); err != nil {
+			return diag.Errorf("failed to shutdown vm: %s", err)
 		}
-		if state["status"] != "stopped" {
+		if err := waitVMStopped(ctx, client, vmref, waitStoppedTimeout); err != nil {
+			return diag.Errorf("wait vm stopped: %s", err)
+		}
+	}
+
+	vmState, err := client.GetVmState(vmref)
+	if err != nil {
+		return diag.Errorf("failed to get vm state: %s", err)
+	}
+	currentStatus := vmState["status"].(string)
+	desiredStatus := d.Get("status").(string)
+
+	switch currentStatus {
+	case "running":
+		switch desiredStatus {
+		case "running":
+		case "stopped":
 			if _, err := client.ShutdownVm(vmref); err != nil {
 				return diag.Errorf("failed to shutdown vm: %s", err)
 			}
 			if err := waitVMStopped(ctx, client, vmref, waitStoppedTimeout); err != nil {
 				return diag.Errorf("wait vm stopped: %s", err)
 			}
+		default:
+			return diag.Errorf("invalid status %q", desiredStatus)
 		}
-		if _, err := client.StartVm(vmref); err != nil {
-			return diag.Errorf("failed to start vm: %s", err)
-		}
-		vmConfig, err := client.GetVmConfig(vmref)
-		if err != nil {
-			return diag.Errorf("failed to get vm config: %s", err)
-		}
-		if agent, ok := vmConfig["agent"]; ok {
-			if agentStr, ok := agent.(string); !ok {
-				tflog.Warn(ctx, "agent parameter returned by pve is not a string, skip fetch ip address")
-			} else if strings.Contains(agentStr, "enabled=1") {
-				if diags := waitVMBootUpGetIP(ctx, client, vmref, d, waitBootUpTimeout); diags != nil {
-					return diags
-				}
-
+	case "stopped":
+		switch desiredStatus {
+		case "running":
+			if _, err := client.StartVm(vmref); err != nil {
+				return diag.Errorf("failed to start vm: %s", err)
 			}
+			vmConfig, err := client.GetVmConfig(vmref)
+			if err != nil {
+				return diag.Errorf("failed to get vm config: %s", err)
+			}
+			if agent, ok := vmConfig["agent"]; ok {
+				if agentStr, ok := agent.(string); !ok {
+					tflog.Warn(ctx, "agent parameter returned by pve is not a string, skip fetch ip address")
+				} else if strings.Contains(agentStr, "enabled=1") {
+					if diags := waitVMBootUpGetIP(ctx, client, vmref, d, waitBootUpTimeout); diags != nil {
+						return diags
+					}
+
+				}
+			}
+		case "stopped":
+		default:
+			return diag.Errorf("invalid status %q", desiredStatus)
 		}
+	default:
+		return diag.Errorf("unknown vm status %q", currentStatus)
 	}
 
 	return nil
