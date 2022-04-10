@@ -89,16 +89,10 @@ func resourceVM() *schema.Resource {
 				ValidateFunc: validation.IntAtLeast(1),
 			},
 			"user_data": {
-				Description: `
-					cloud-init user data.
-
-					Use this to provision vm, including ssh public key or password setup
-
-					Learn more https://cloudinit.readthedocs.io/en/latest/topics/format.html
-				`,
-				Type:     schema.TypeString,
-				Optional: true,
-				ForceNew: true,
+				Description: `cloud-init user data. Use this to provision vm, including ssh public key or password setup. Learn more https://cloudinit.readthedocs.io/en/latest/topics/format.html`,
+				Type:        schema.TypeString,
+				Optional:    true,
+				ForceNew:    true,
 			},
 			"ipv4_address": {
 				Description: "IPv4 Address of this vm.",
