@@ -674,6 +674,22 @@ loop:
 }
 
 func replaceTemplate(ctx context.Context, client *apiClient, vmName string, vmref, tplref *pxapi.VmRef) error {
+	tplConfig, err := client.GetVmConfig(tplref)
+	if err != nil {
+		return fmt.Errorf("failed to get template config: %s", err)
+	}
+	vmConfig, err := client.GetVmConfig(vmref)
+	if err != nil {
+		return fmt.Errorf("failed to get vm config: %s", err)
+	}
+
+	// changing bootdisk and scsihw might need replace all disk driver (eg. from scsi to ide), for now i don't see it's necessary to to this work, so refuse this type of change
+	for _, n := range []string{"bootdisk", "scsihw"} {
+		if tplConfig[n] != vmConfig[n] {
+			return fmt.Errorf("cannot replace to template %s(%d), because it has different config %s", tplConfig["name"], tplref.VmId(), n)
+		}
+	}
+
 	newid, err := client.GetNextID(0)
 	if err != nil {
 		return fmt.Errorf("failed to generate vmid: %s", err)
@@ -721,6 +737,31 @@ func replaceTemplate(ctx context.Context, client *apiClient, vmName string, vmre
 	_, err = client.SetVmConfig(vmref, map[string]interface{}{"delete": "unused0"})
 	if err != nil {
 		return fmt.Errorf("failed to remove unused disk: %s", err)
+	}
+
+	// update some config from template
+	updates := map[string]interface{}{}
+	deletes := []string{}
+	for _, n := range []string{"ostype", "vga", "cpu"} {
+		if tplConfig[n] != vmConfig[n] {
+			if tplConfig[n] == nil {
+				deletes = append(deletes, n)
+			} else {
+				updates[n] = tplConfig[n]
+			}
+		}
+	}
+	if len(updates) > 0 {
+		_, err := client.SetVmConfig(vmref, updates)
+		if err != nil {
+			return fmt.Errorf("failed to update vm config: %s", err)
+		}
+	}
+	if len(deletes) > 0 {
+		_, err := client.SetVmConfig(vmref, map[string]interface{}{"delete": strings.Join(deletes, ",")})
+		if err != nil {
+			return fmt.Errorf("failed to delete vm config: %s", err)
+		}
 	}
 
 	return nil

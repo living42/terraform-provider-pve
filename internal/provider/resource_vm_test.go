@@ -169,39 +169,39 @@ func TestAccResourceVMSwitchTemplate(t *testing.T) {
 				`,
 			},
 			// Switch to other distro (hardware changed)
-			// {
-			// 	Config: `
-			// 	locals {
-			// 		password = "secret0001"
-			// 	}
-			// 	resource "pve_vm" "vm1" {
-			// 		name = "test-vm1-user-data"
-			// 		template_name = "ubuntu-20.04-20220315"
-			// 		target_node = "pve"
-			// 		target_storage = "local"
-			// 		cores = 1
-			// 		memory = 512
-			// 		user_data = <<-EOF
-			// 		#cloud-config
-			// 		password: ${local.password}
-			// 		chpasswd:
-			// 		  expire: false
-			// 		EOF
+			{
+				Config: `
+				locals {
+					password = "secret0001"
+				}
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-user-data"
+					template_name = "ubuntu-20.04-20220315"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					user_data = <<-EOF
+					#cloud-config
+					password: ${local.password}
+					chpasswd:
+					  expire: false
+					EOF
 
-			// 		provisioner "remote-exec" {
-			// 			inline = [
-			// 				"echo user_data works! > /tmp/tf-pve-test.txt",
-			// 			]
-			// 			connection {
-			// 				type     = "ssh"
-			// 				user     = "debian"
-			// 				password = local.password
-			// 				host     = self.ipv4_address
-			// 			}
-			// 		}
-			// 	}
-			// 	`,
-			// },
+					provisioner "remote-exec" {
+						inline = [
+							"echo user_data works! > /tmp/tf-pve-test.txt",
+						]
+						connection {
+							type     = "ssh"
+							user     = "debian"
+							password = local.password
+							host     = self.ipv4_address
+						}
+					}
+				}
+				`,
+			},
 		},
 	})
 }
