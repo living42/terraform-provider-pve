@@ -210,12 +210,19 @@ func TestAccResourceVMWithDisks(t *testing.T) {
 	resource.UnitTest(t, resource.TestCase{
 		PreCheck:          func() { testAccPreCheck(t) },
 		ProviderFactories: providerFactories,
+		ExternalProviders: map[string]resource.ExternalProvider{
+			"null": {
+				Source:            "hashicorp/null",
+				VersionConstraint: "3.1.1",
+			},
+		},
 		Steps: []resource.TestStep{
 			{
 				Config: `
 				locals {
 					password = "secret0001"
 				}
+
 				resource "pve_vm" "vm1" {
 					name = "test-vm1-disks"
 					template_name = "debian-10.11.4-20220312"
@@ -228,33 +235,71 @@ func TestAccResourceVMWithDisks(t *testing.T) {
 					password: ${local.password}
 					chpasswd:
 					  expire: false
-					fs_setup:
-					  - device: /dev/sdb
-					    label: data1
-					    filesystem: ext4
-					    partition: auto
-					  - device: /dev/sdc
-					    label: data2
-					    filesystem: ext4
-					    partition: auto
-					mounts:
-					  - [/dev/sdb, /data1]
-					  - [/dev/sdc, /data2]
 					EOF
 
 					disk {
 						storage = "local"
 						size = 8
 					}
+				}
+
+				resource "null_resource" "check" {
+					triggers = {
+						# change this each step to trigger checking
+						step = "1"
+					}
+					provisioner "remote-exec" {
+						inline = [
+							"[ $(lsblk /dev/sdb -o SIZE -n -r) = 8G ]",
+						]
+						connection {
+							type     = "ssh"
+							user     = "debian"
+							password = local.password
+							host     = pve_vm.vm1.ipv4_address
+						}
+					}
+				}
+				`,
+			},
+			// Add more disk
+			{
+				Config: `
+				locals {
+					password = "secret0001"
+				}
+
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-disks"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					user_data = <<-EOF
+					#cloud-config
+					password: ${local.password}
+					chpasswd:
+					  expire: false
+					EOF
 
 					disk {
 						storage = "local"
 						size = 8
 					}
+					disk {
+						storage = "local"
+						size = 8
+					}
+				}
 
+				resource "null_resource" "check" {
+					triggers = {
+						# change this each step to trigger checking
+						step = "2"
+					}
 					provisioner "remote-exec" {
 						inline = [
-							"cloud-init status --wait",
 							"[ $(lsblk /dev/sdb -o SIZE -n -r) = 8G ]",
 							"[ $(lsblk /dev/sdc -o SIZE -n -r) = 8G ]",
 						]
@@ -262,7 +307,55 @@ func TestAccResourceVMWithDisks(t *testing.T) {
 							type     = "ssh"
 							user     = "debian"
 							password = local.password
-							host     = self.ipv4_address
+							host     = pve_vm.vm1.ipv4_address
+						}
+					}
+				}
+				`,
+			},
+			// remove disk
+			{
+				Config: `
+				locals {
+					password = "secret0001"
+				}
+
+				resource "pve_vm" "vm1" {
+					name = "test-vm1-disks"
+					template_name = "debian-10.11.4-20220312"
+					target_node = "pve"
+					target_storage = "local"
+					cores = 1
+					memory = 512
+					user_data = <<-EOF
+					#cloud-config
+					password: ${local.password}
+					chpasswd:
+					  expire: false
+					EOF
+
+					disk {
+						storage = "local"
+						size = 8
+					}
+				}
+
+				resource "null_resource" "check" {
+					triggers = {
+						# change this each step to trigger checking
+						step = "3"
+					}
+					provisioner "remote-exec" {
+						inline = [
+							"[ $(lsblk /dev/sdb -o SIZE -n -r) = 8G ]",
+							# expect disk removed
+							"lsblk /dev/sdc && exit 1 || exit 0",
+						]
+						connection {
+							type     = "ssh"
+							user     = "debian"
+							password = local.password
+							host     = pve_vm.vm1.ipv4_address
 						}
 					}
 				}

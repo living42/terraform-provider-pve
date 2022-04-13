@@ -255,6 +255,10 @@ func resourceVMRead(ctx context.Context, d *schema.ResourceData, meta interface{
 
 	err = client.CheckVmRef(vmref)
 	if err != nil {
+		if err.Error() == fmt.Sprintf("vm '%d' not found", vmid) {
+			d.SetId("")
+			return nil
+		}
 		return diag.FromErr(err)
 	}
 
@@ -307,6 +311,9 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 	shutdownNeeded := false
 
 	vmref := pxapi.NewVmRef(vmid)
+	if err := client.CheckVmRef(vmref); err != nil {
+		return diag.Errorf("failed to check vm: %s", err)
+	}
 
 	updates := map[string]interface{}{}
 
@@ -327,6 +334,43 @@ func resourceVMUpdate(ctx context.Context, d *schema.ResourceData, meta interfac
 	if d.HasChange("onboot") {
 		onboot := d.Get("onboot")
 		updates["onboot"] = onboot
+	}
+	if d.HasChange("disk") {
+		oldDisks, newDisks := d.GetChange("disk")
+		if len(oldDisks.([]interface{})) < len(newDisks.([]interface{})) {
+			// add disk
+			for i := len(oldDisks.([]interface{})); i < len(newDisks.([]interface{})); i++ {
+				disk := newDisks.([]interface{})[i]
+				device := fmt.Sprintf("scsi%d", i+1)
+				storage := disk.(map[string]interface{})["storage"].(string)
+				size := disk.(map[string]interface{})["size"].(int)
+				updates[device] = fmt.Sprintf("%s:%d,format=qcow2", storage, size)
+			}
+		} else {
+			// remove disk
+			deletes := []string{}
+			for i := len(newDisks.([]interface{})); i < len(oldDisks.([]interface{})); i++ {
+				device := fmt.Sprintf("scsi%d", i+1)
+				deletes = append(deletes, device)
+			}
+			_, err := client.SetVmConfig(vmref, map[string]interface{}{
+				"delete": strings.Join(deletes, ","),
+			})
+			if err != nil {
+				return diag.Errorf("failed to delete disk: %s", err)
+			}
+			unused := []string{}
+			for i := range deletes {
+				device := fmt.Sprintf("unused%d", i)
+				unused = append(unused, device)
+			}
+			_, err = client.SetVmConfig(vmref, map[string]interface{}{
+				"delete": strings.Join(unused, ","),
+			})
+			if err != nil {
+				return diag.Errorf("failed to delete ununsed disk: %s", err)
+			}
+		}
 	}
 
 	if len(updates) > 0 {
