@@ -38,13 +38,13 @@ resource "pve_vm" "vm1" {
 ### Optional
 
 - `disk` (Block List) Attach extra disk into VM (see [below for nested schema](#nestedblock--disk))
-- `id` (String) The ID of this resource.
 - `onboot` (Boolean) Specifies whether a VM will be started during system bootup.
 - `status` (String) Desired VM status
 - `user_data` (String) cloud-init user data. Use this to provision vm, including ssh public key or password setup. Learn more https://cloudinit.readthedocs.io/en/latest/topics/format.html
 
 ### Read-Only
 
+- `id` (String) The ID of this resource.
 - `ipv4_address` (String) IPv4 Address of this vm.
 
 <a id="nestedblock--disk"></a>
