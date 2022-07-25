@@ -5,7 +5,7 @@ go 1.17
 require (
 	github.com/Telmate/proxmox-api-go v0.0.0-20220129131641-6909b62b8cf0
 	github.com/hashicorp/terraform-plugin-docs v0.13.0
-	github.com/hashicorp/terraform-plugin-log v0.4.1
+	github.com/hashicorp/terraform-plugin-log v0.7.0
 	github.com/hashicorp/terraform-plugin-sdk/v2 v2.18.0
 	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2
 )
