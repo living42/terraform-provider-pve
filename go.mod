@@ -1,6 +1,6 @@
 module github.com/hashicorp/terraform-provider-pve
 
-go 1.17
+go 1.22
 
 require (
 	github.com/Telmate/proxmox-api-go v0.0.0-20220129131641-6909b62b8cf0
