@@ -54,5 +54,3 @@ Required:
 
 - `size` (Number) Size in GB
 - `storage` (String)
-
-
