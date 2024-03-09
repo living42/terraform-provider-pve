@@ -1,4 +1,4 @@
-FROM golang:1.22
+FROM mcr.microsoft.com/devcontainers/go:1.22
 
 RUN <<EOF
 set -xeu
